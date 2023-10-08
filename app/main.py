@@ -9,6 +9,7 @@ class Request:
     method: str
     path: str
     headers: dict[str, str]
+    body: bytes
 
 
 def main():
@@ -30,6 +31,8 @@ def handle(conn: socket.socket) -> None:
 
     if request.path == "/":
         resp = build_empty_response(HTTPStatus.OK)
+    elif request.path.startswith("/echo/"):
+        resp = build_echo_response(request)
     else:
         resp = build_empty_response(HTTPStatus.NOT_FOUND)
 
@@ -54,13 +57,18 @@ def parse_request(conn: socket.socket) -> Request:
         k, v = header.split(": ", maxsplit=1)
         headers[k.lower()] = v
 
-    _body = next(elem_iter, None)
+    body = next(elem_iter, b"")
 
-    return Request(method=method, path=path, headers=headers)
+    return Request(method=method, path=path, headers=headers, body=body)
 
 
 def build_empty_response(status_code: HTTPStatus) -> bytes:
     return build_response(status_code)
+
+
+def build_echo_response(request: Request) -> bytes:
+    body = request.path.removeprefix("/echo/").encode()
+    return build_response(HTTPStatus.OK, body=body)
 
 
 def build_response(
@@ -69,16 +77,15 @@ def build_response(
     status = f"HTTP/1.1 {status_code} {status_code.phrase}\r\n"
     headers = {
         "Content-Type": "text/plain",
-        "Content-Length": len(body),
+        "Content-Length": str(len(body)),
         **(headers or {}),
     }
 
     return (
         status.encode()
         + "\r\n".join(f"{k}: {v}" for k, v in headers.items()).encode()
-        + b"\r\n"
+        + b"\r\n\r\n"
         + body
-        + b"\r\n"
     )
 
 
