@@ -33,6 +33,8 @@ def handle(conn: socket.socket) -> None:
         resp = build_empty_response(HTTPStatus.OK)
     elif request.path.startswith("/echo/"):
         resp = build_echo_response(request)
+    elif request.path.startswith("/user-agent"):
+        resp = build_user_agent_response(request)
     else:
         resp = build_empty_response(HTTPStatus.NOT_FOUND)
 
@@ -68,6 +70,11 @@ def build_empty_response(status_code: HTTPStatus) -> bytes:
 
 def build_echo_response(request: Request) -> bytes:
     body = request.path.removeprefix("/echo/").encode()
+    return build_response(HTTPStatus.OK, body=body)
+
+
+def build_user_agent_response(request: Request) -> bytes:
+    body = request.headers.get("user-agent", "").encode()
     return build_response(HTTPStatus.OK, body=body)
 
 
