@@ -45,15 +45,22 @@ def handle(conn: socket.socket, directory: Path) -> None:
         print(f"{req_id} - parsed request: {request}")
 
         if request.path == "/":
-            resp = build_empty_response(HTTPStatus.OK)
+            resp = build_response(HTTPStatus.OK)
         elif request.path.startswith("/echo/"):
             resp = build_echo_response(request)
         elif request.path.startswith("/user-agent"):
             resp = build_user_agent_response(request)
         elif request.path.startswith("/files/"):
-            resp = build_file_response(request, directory)
+            match request.method:
+                case "GET":
+                    resp = build_file_response(request, directory)
+                case "POST":
+                    resp = post_file(request, directory)
+                case _:
+                    resp = build_response(HTTPStatus.METHOD_NOT_ALLOWED)
+
         else:
-            resp = build_empty_response(HTTPStatus.NOT_FOUND)
+            resp = build_response(HTTPStatus.NOT_FOUND)
 
         print(f"{req_id} - raw response: {resp}")
         conn.sendall(resp)
@@ -80,10 +87,6 @@ def parse_request(data: bytes) -> Request:
     return Request(method=method, path=path, headers=headers, body=body)
 
 
-def build_empty_response(status_code: HTTPStatus) -> bytes:
-    return build_response(status_code)
-
-
 def build_echo_response(request: Request) -> bytes:
     body = request.path.removeprefix("/echo/").encode()
     return build_response(HTTPStatus.OK, body=body)
@@ -104,6 +107,14 @@ def build_file_response(request: Request, directory: Path) -> bytes:
         headers={"Content-Type": "application/octet-stream"},
         body=file.read_bytes(),
     )
+
+
+def post_file(request: Request, directory: Path) -> bytes:
+    file = directory / request.path.removeprefix("/files/")
+
+    file.write_bytes(request.body)
+
+    return build_response(HTTPStatus.CREATED)
 
 
 def build_response(
