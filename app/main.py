@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import socket
 from http import HTTPStatus
+import sys
 from uuid import uuid4
+from pathlib import Path
 
 CONCURRENCY = 16
 
@@ -16,6 +18,11 @@ class Request:
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--directory":
+        directory = Path(sys.argv[2])
+    else:
+        directory = Path(".")
+
     server_socket = socket.create_server(
         ("localhost", 4221), backlog=CONCURRENCY, reuse_port=True
     )
@@ -25,14 +32,17 @@ def main():
             conn, addr = server_socket.accept()
             print(f"connection from {addr[0]}:{addr[1]}")
 
-            pool.submit(handle, conn)
+            pool.submit(handle, conn, directory)
 
 
-def handle(conn: socket.socket) -> None:
+def handle(conn: socket.socket, directory: Path) -> None:
     try:
         req_id = uuid4()
-        request = parse_request(conn)
-        print(f"{req_id} - Request: {request}")
+
+        data = conn.recv(2048)
+        print(f"{req_id} - raw request: {data}")
+        request = parse_request(data)
+        print(f"{req_id} - parsed request: {request}")
 
         if request.path == "/":
             resp = build_empty_response(HTTPStatus.OK)
@@ -40,6 +50,8 @@ def handle(conn: socket.socket) -> None:
             resp = build_echo_response(request)
         elif request.path.startswith("/user-agent"):
             resp = build_user_agent_response(request)
+        elif request.path.startswith("/files/"):
+            resp = build_file_response(request, directory)
         else:
             resp = build_empty_response(HTTPStatus.NOT_FOUND)
 
@@ -52,10 +64,7 @@ def handle(conn: socket.socket) -> None:
         print(f"Error handling connection: {e}")
 
 
-def parse_request(conn: socket.socket) -> Request:
-    data = conn.recv(2048)
-    # print(f"raw request:\n======\n{data}\n======\n")
-
+def parse_request(data: bytes) -> Request:
     start_line, *elements = data.split(b"\r\n")
 
     method, path, _ = start_line.decode().split(" ")
@@ -83,6 +92,18 @@ def build_echo_response(request: Request) -> bytes:
 def build_user_agent_response(request: Request) -> bytes:
     body = request.headers.get("user-agent", "").encode()
     return build_response(HTTPStatus.OK, body=body)
+
+
+def build_file_response(request: Request, directory: Path) -> bytes:
+    file = directory / request.path.removeprefix("/files/")
+    if not file.exists():
+        return build_response(HTTPStatus.NOT_FOUND)
+
+    return build_response(
+        HTTPStatus.OK,
+        headers={"Content-Type": "application/octet-stream"},
+        body=file.read_bytes(),
+    )
 
 
 def build_response(
