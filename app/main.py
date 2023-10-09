@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 import socket
 from http import HTTPStatus
 from uuid import uuid4
+
+CONCURRENCY = 16
 
 
 @dataclass
@@ -13,41 +16,45 @@ class Request:
 
 
 def main():
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    while True:
-        conn, addr = server_socket.accept()
+    server_socket = socket.create_server(
+        ("localhost", 4221), backlog=CONCURRENCY, reuse_port=True
+    )
+    print("Listening on localhost:4221")
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+        while True:
+            conn, addr = server_socket.accept()
+            print(f"connection from {addr[0]}:{addr[1]}")
 
-        print(f"connection from {addr[0]}:{addr[1]}")
-        try:
-            handle(conn)
-        except Exception as e:
-            print(f"Error handling connection: {e}")
+            pool.submit(handle, conn)
 
 
 def handle(conn: socket.socket) -> None:
-    req_id = uuid4()
-    request = parse_request(conn)
-    print(f"{req_id} - Request: {request}")
+    try:
+        req_id = uuid4()
+        request = parse_request(conn)
+        print(f"{req_id} - Request: {request}")
 
-    if request.path == "/":
-        resp = build_empty_response(HTTPStatus.OK)
-    elif request.path.startswith("/echo/"):
-        resp = build_echo_response(request)
-    elif request.path.startswith("/user-agent"):
-        resp = build_user_agent_response(request)
-    else:
-        resp = build_empty_response(HTTPStatus.NOT_FOUND)
+        if request.path == "/":
+            resp = build_empty_response(HTTPStatus.OK)
+        elif request.path.startswith("/echo/"):
+            resp = build_echo_response(request)
+        elif request.path.startswith("/user-agent"):
+            resp = build_user_agent_response(request)
+        else:
+            resp = build_empty_response(HTTPStatus.NOT_FOUND)
 
-    print(f"{req_id} - raw response:\n======\n{resp}\n======\n")
-    conn.sendall(resp)
-    conn.shutdown(socket.SHUT_RDWR)
-    conn.close()
-    print(f"{req_id} - closed conn")
+        print(f"{req_id} - raw response: {resp}")
+        conn.sendall(resp)
+        conn.shutdown(socket.SHUT_RDWR)
+        conn.close()
+        print(f"{req_id} - closed conn")
+    except Exception as e:
+        print(f"Error handling connection: {e}")
 
 
 def parse_request(conn: socket.socket) -> Request:
     data = conn.recv(2048)
-    print(f"raw request:\n======\n{data}\n======\n")
+    # print(f"raw request:\n======\n{data}\n======\n")
 
     start_line, *elements = data.split(b"\r\n")
 
